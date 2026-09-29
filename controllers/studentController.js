@@ -1,15 +1,28 @@
 const Student = require("../models/Student");
-const getStudents = async(req,res) =>{
+const getStudents = async(req, res) =>{
     try{
-        const students = await Student.find();
-        res.json(students);
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+        const skip = (page-1)*limit;
+        const students = await Student.find()
+            .skip(skip)
+            .limit(limit);
+        const totalStudents = await Student.countDocuments();
+        const totalPages = Math.ceil(totalStudents/limit);
+        res.json({
+            students,
+            currentPage: page,
+            totalPages,
+            totalStudents
+        });
     } catch(error){
         res.status(500).json({
             message:"Failed to fetch students"
         });
     }
 };
-const getStudentById = async(req,res) =>{
+
+const getStudentById = async(req, res) =>{
     try{
         const student = await Student.findById(req.params.id);
         if(!student){
@@ -25,7 +38,7 @@ const getStudentById = async(req,res) =>{
     }
 };
 
-const createStudent = async(req,res) =>{
+const createStudent = async(req, res) =>{
     try{
         const {name, age, course} = req.body;
         if(!name || !age || !course){
@@ -46,16 +59,15 @@ const createStudent = async(req,res) =>{
     }
 };
 
-const updateStudent = async(req,res) =>{
+const updateStudent = async(req, res) =>{
     try{
-        const{name,age,course} = req.body;
-
+        const {name, age, course} = req.body;
         const student = await Student.findByIdAndUpdate(
             req.params.id,
-            {name, age,course},
+            {name, age, course},
             {new:true}
-        );
-        if(!student) {
+        )
+        if(!student){
             return res.status(404).json({
                 message:"Student not found"
             });
@@ -68,10 +80,10 @@ const updateStudent = async(req,res) =>{
     }
 };
 
-const deleteStudent = async(req,res) =>{
+const deleteStudent = async(req, res) =>{
     try{
         const student = await Student.findByIdAndDelete(req.params.id);
-        if(!student) {
+        if(!student){
             return res.status(404).json({
                 message:"Student not found"
             });
@@ -79,17 +91,72 @@ const deleteStudent = async(req,res) =>{
         res.json({
             message:"Student deleted successfully"
         });
-    } catch(error) {
+    } catch(error){
         res.status(400).json({
             message:"Invalid student ID"
         });
     }
 };
 
-module.exports = {
+const getTotalStudents = async(req, res) =>{
+    try{
+        const result = await Student.aggregate([
+            {
+                $count:"totalStudents"
+            }
+        ]);
+        res.json(result);
+    } catch(error){
+        res.status(500).json({
+            message:"Failed to count students"
+        });
+    }
+};
+
+const getStudentsByCourse = async(req,res) =>{
+    try{
+        const result = await Student.aggregate([
+            {
+                $group:{
+                    _id:"$course",
+                    totalStudents:{$sum:1}
+                }
+            }
+        ]);
+        res.json(result);
+    } catch(error){
+        res.status(500).json({
+            message:"Failed to get students by course"
+        });
+
+    }
+};
+
+const getAverageAgeByCourse = async(req, res) =>{
+    try {
+        const result = await Student.aggregate([
+            {
+                $group:{
+                    _id:"$course",
+                    averageAge:{$avg:"$age"}
+                }
+            }
+        ]);
+        res.json(result);
+    } catch(error){
+        res.status(500).json({
+            message:"Failed to calculate average age"
+        });
+    }
+};
+
+module.exports ={
     getStudents,
     getStudentById,
     createStudent,
     updateStudent,
-    deleteStudent
+    deleteStudent,
+    getTotalStudents,
+    getStudentsByCourse,
+    getAverageAgeByCourse
 };

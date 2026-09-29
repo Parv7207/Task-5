@@ -1,12 +1,19 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-
-const registerUser = async(req,res) =>{
+const nodemailer = require("nodemailer");
+const transporter = nodemailer.createTransport({
+    service:"gmail",
+    auth:{
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+const registerUser = async(req, res) =>{
     try{
-        const{name, email, password} = req.body;
+        const {name, email, password} = req.body;
         const existingUser = await User.findOne({email});
-        if(existingUser) {
+        if(existingUser){
             return res.status(400).json({
                 message:"Email already exists"
             });
@@ -26,16 +33,15 @@ const registerUser = async(req,res) =>{
                 role: user.role
             }
         });
-    } catch(error) {
+    } catch(error){
         res.status(500).json({
             message:"Server error"
         });
     }
 };
-
-const loginUser = async(req,res) =>{
+const loginUser = async(req, res) =>{
     try{
-        const{email,password} = req.body;
+        const{email, password} = req.body;
         const user = await User.findOne({email});
         if(!user){
             return res.status(401).json({
@@ -51,6 +57,47 @@ const loginUser = async(req,res) =>{
                 message:"Invalid email or password"
             });
         }
+        const otp = Math.floor(
+            100000 + Math.random()*900000
+        ).toString();
+        user.otp = otp;
+        user.otpExpires = Date.now()+5*60*1000;
+        await user.save();
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to:email,
+            subject:"Your Login OTP",
+            text:`Your OTP is ${otp}. It is valid for 5 minutes.`
+        });
+        res.status(200).json({
+            message:"OTP sent successfully"
+        });
+    } catch(error){
+        console.log(error);
+        res.status(500).json({
+            message:"Server error"
+        });
+    }
+};
+
+const verifyOTP = async(req, res) =>{
+    try{
+        const {email,otp} = req.body;
+        const user = await User.findOne({email});
+        if(!user){
+            return res.status(401).json({
+                message:"User not found"
+            });
+        }
+        if(
+            user.otp !== otp ||
+            !user.otpExpires ||
+            user.otpExpires < Date.now()
+        ) {
+            return res.status(401).json({
+                message:"Invalid or expired OTP"
+            });
+        }
         const token = jwt.sign(
             {
                 id: user._id,
@@ -58,21 +105,25 @@ const loginUser = async(req,res) =>{
             },
             process.env.JWT_SECRET,
             {
-                expiresIn:"1h"
+                expiresIn:"7d"
             }
         );
+        user.otp = undefined;
+        user.otpExpires = undefined;
+        await user.save();
         res.status(200).json({
             message:"Login successful",
             token: token
         });
-
     } catch(error){
-    res.status(500).json({
-        message:"Server error"
-    });
+        console.log(error);
+        res.status(500).json({
+            message:"Server error"
+        });
     }
 };
-module.exports ={
+module.exports={
     registerUser,
-    loginUser
-};  
+    loginUser,
+    verifyOTP
+};
